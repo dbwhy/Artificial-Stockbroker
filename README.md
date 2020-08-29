@@ -1,6 +1,6 @@
 # Artificial-Stockbroker
 
-This project is an attempt to 'hack' the stock market via machine learning and is split into two parts: predicting and trading.
+This is an attempt to 'hack' the stock market via machine learning. The project is split into two parts: predicting and trading.
 
 The predicting stage will utilize the TensorFlow library to train a recurrent neural network (RNN) model to predict a stock's *closing price*. The RNN architecture used will be the LSTM (Long Short-Term Memory) algorithm.
 
