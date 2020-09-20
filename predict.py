@@ -44,7 +44,10 @@ class PredictClosingPrice:
             x.append(ds_scaled[i-self.look_back:i, 0])
             y.append(ds_scaled[i, 0])
 
-        return [train, valid, np.array(x), np.array(y)]
+        x, y = np.array(x), np.array(y)
+        x = np.reshape(x, (x.shape[0], x.shape[1], 1))
+
+        return [train, valid, x, y]
 
     def train_test_model(self):
         # build model
@@ -57,7 +60,7 @@ class PredictClosingPrice:
         model.fit(self.x_train, self.y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=2)
 
         # format model inputs as X_test
-        inputs = self.data[len(self.data) - len(self.validate) - self.look_back]
+        inputs = self.data[len(self.data) - len(self.validate) - self.look_back:].values
         inputs = inputs.reshape(-1, 1)
         inputs = self.scale.transform(inputs)
 
@@ -80,7 +83,7 @@ class PredictClosingPrice:
     def plot_model(self, y_test):
         train = self.data[:self.T]
         validate = self.data[self.T:]
-        validate['Predictions'] = y_test
+        validate['predictions'] = y_test
         plt.plot(train['close'])
         plt.plot(validate[['close', 'predictions']])
         plt.show()
