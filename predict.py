@@ -1,65 +1,91 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
 
 
-df = pd.read_csv('SpotifyMarketHistory.csv')
-df['date'] = pd.to_datetime(df.date, format='%Y-%m-%d')
-df.index = df['date']
+class PredictClosingPrice:
+    def __init__(self):
+        self.spotify_market_history = 'SpotifyMarketHistory.csv'
+        self.data = self.load_data()
+        self.pct_train = 0.45
+        self.T = int(len(self.data) * self.pct_train)
+        self.look_back = 60
+        self.scale = MinMaxScaler(feature_range=(0, 1))
+        self.train, self.validate, self.x_train, self.y_train = self.preprocessing()
+        self.loss = 'mean_squared_error'
+        self.opt = 'adam'
+        self.epochs = 1
+        self.batch_size = 1
 
-data = df.sort_index(ascending=True, axis=0)
-new_data = pd.DataFrame(index=range(0, len(df)), columns=['date', 'close'])
-for i in range(0, len(df)):
-    new_data['date'][i] = data['date'][i]
-    new_data['close'][i] = data['close'][i]
+    # load market data, create dataframe, set index
+    def load_data(self):
+        df = pd.read_csv(self.spotify_market_history)
+        df.sort_index(ascending=True, axis=0, inplace=True)
+        df['date'] = pd.to_datetime(df.date, format='%Y-%m-%d')
+        df.index = df['date']
+        return df[['close']]
 
-new_data.index = new_data.date
-new_data.drop('date', axis=1, inplace=True)
+    # prepare data for model
+    def preprocessing(self):
+        # creating train and test sets
+        dataset = self.data.values
+        train = dataset[0:self.T, :]
+        valid = dataset[self.T:, :]
 
-dataset = new_data.values
+        # normalize data
+        ds_scaled = self.scale.fit_transform(dataset)
 
-train = dataset[0:500, :]
-valid = dataset[500:, :]
+        # convert data into x_train and y_train
+        x, y = [], []
+        for i in range(self.look_back, len(train)):
+            x.append(ds_scaled[i-self.look_back:i, 0])
+            y.append(ds_scaled[i, 0])
 
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_data = scaler.fit_transform(dataset)
+        return [train, valid, np.array(x), np.array(y)]
 
-x_train, y_train = [], []
-for i in range(60, len(train)):
-    x_train.append(scaled_data[i - 60:i, 0])
-    y_train.append(scaled_data[i, 0])
+    def train_test_model(self):
+        # build model
+        model = Sequential()
+        model.add(LSTM(50, return_sequences=True, input_shape=(self.x_train.shape[1], 1)))
+        model.add(LSTM(50))
+        model.add(Dense(1))
 
-x_train, y_train = np.array(x_train), np.array(y_train)
-x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+        model.compile(loss=self.loss, optimizer=self.opt)
+        model.fit(self.x_train, self.y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=2)
 
-model = Sequential()
-model.add(LSTM(units=50, return_sequences=True, input_shape=(x_train.shape[1], 1)))
-model.add(LSTM(units=50))
-model.add(Dense(1))
+        # format model inputs as X_test
+        inputs = self.data[len(self.data) - len(self.validate) - self.look_back]
+        inputs = inputs.reshape(-1, 1)
+        inputs = self.scale.transform(inputs)
 
-model.compile(loss='mean_squared_error', optimizer='adam')
-model.fit(x_train, y_train, epochs=1, batch_size=1, verbose=2)
+        X_test = []
+        for i in range(self.look_back, inputs.shape[0]):
+            X_test.append(inputs[i-self.look_back:i, 0])
+        X_test = np.array(X_test)
+        X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
 
-inputs = new_data[len(new_data) - len(valid) - 60:].values
-inputs = inputs.reshape(-1, 1)
-inputs = scaler.transform(inputs)
+        # predict closing price
+        closing_price = model.predict(X_test)
+        closing_price = self.scale.inverse_transform(closing_price)
 
-X_test = []
-for i in range(60, inputs.shape[0]):
-    X_test.append(inputs[i-60:i, 0])
-X_test = np.array(X_test)
+        # evaluate error
+        rms = np.sqrt(np.mean(np.power((self.validate-closing_price), 2)))
+        print(f"RMSE: {rms}")
 
-X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
-closing_price = model.predict(X_test)
-closing_price = scaler.inverse_transform(closing_price)
+        self.plot_model(closing_price)
 
-rms = np.sqrt(np.mean(np.power((valid-closing_price), 2)))
+    def plot_model(self, y_test):
+        train = self.data[:self.T]
+        validate = self.data[self.T:]
+        validate['Predictions'] = y_test
+        plt.plot(train['close'])
+        plt.plot(validate[['close', 'predictions']])
+        plt.show()
 
-train = new_data[:500]
-valid = new_data[500:]
-valid['Predictions'] = closing_price
-plt.plot(train['close'])
-plt.plot(valid[['close', 'Predictions']])
+
+if __name__ == '__main__':
+    pcp = PredictClosingPrice()
+    pcp.train_test_model()
